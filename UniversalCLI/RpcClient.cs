@@ -1,4 +1,6 @@
-﻿using RabbitMQ.Client;
+﻿using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
 using System;
 using System.Collections.Concurrent;
@@ -47,7 +49,7 @@ namespace UniversalCLI
                 autoAck: true);
         }
 
-        public string Call(string message)
+        private string Call(string message)
         {
             var messageBytes = Encoding.UTF8.GetBytes(message);
             channel.BasicPublish(
@@ -57,6 +59,13 @@ namespace UniversalCLI
                 body: messageBytes);
 
             return respQueue.Take();
+        }
+
+        public string Call(object cmdPack)
+        {
+            var message = JsonConvert.SerializeObject(cmdPack);
+            var result = Call(message);
+            return result;
         }
 
         public void Close()
