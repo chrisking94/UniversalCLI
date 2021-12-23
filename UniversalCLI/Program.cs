@@ -1,8 +1,7 @@
-﻿using RabbitMQ.Client;
-using RabbitMQ.Client.Events;
+﻿using Newtonsoft.Json.Linq;
 using System;
+using System.Collections.Generic;
 using System.IO;
-using System.Text;
 
 namespace UniversalCLI
 {
@@ -23,7 +22,7 @@ namespace UniversalCLI
             if (File.Exists(hostFilePath)) serverUrl = File.ReadAllText(hostFilePath);
             while (string.IsNullOrEmpty(serverUrl))
             {
-                Console.WriteLine("Please input AMPQS server address ( ampqs://username:password@hostname:port/vhost ):");
+                Console.WriteLine("Please input AMPQS server address ( amqps://username:password@hostname:port/vhost ):");
                 serverUrl = Console.ReadLine();
             }
             // 1.2 Connect.
@@ -45,26 +44,68 @@ namespace UniversalCLI
                 }
                 return;
             }
+            // 1.3 Handshake.
+            Handshake();
 
             // 2. Execute cmds.
             if (bCliMode)  // Run the cli executable directly.
             {
-                Console.WriteLine(client.Call("handshake"));
                 while (true)
                 {
                     var strCmd = Console.ReadLine();
-                    var result = client.Call(strCmd);
-                    Console.Write(result);
+                    var result = client.Call(new { type = "cmd", data = strCmd });
+                    var resObj = ProcessResult(result);
+                    Console.Write(resObj["prompt"]);  // Prepare for next input.
                 }
             }
             else  // Run ucli as a cmd command.
             {
                 var strCmd = string.Join(" ", args);
-                var result = client.Call(strCmd);
-                Console.WriteLine(result);
+                var result = client.Call(new { type = "cmd", data = strCmd });
+                ProcessResult(result);
             }
 
             client.Close();
+        }
+
+        private static JObject ProcessResult(string jsonString)
+        {
+            var resultJobj = JObject.Parse(jsonString);
+            var type = resultJobj["type"].Value<string>();
+
+            if ("error".Equals(type))
+            {
+                Console.WriteLine(resultJobj["data"]);
+                if (resultJobj.TryGetValue("fix", out var value))
+                {
+                    string strVal = value.Value<string>();
+                    if ("handshake" == strVal)
+                    {
+                        Handshake();
+                    }
+                }
+            }
+            else
+            {
+                string result = resultJobj["data"].Value<string>();
+                if (!string.IsNullOrEmpty(result))
+                {
+                    Console.WriteLine(result);
+                }
+            }
+            return resultJobj;
+        }
+
+        /// <summary>
+        /// Send handshake message and print the result.
+        /// </summary>
+        private static void Handshake()
+        {
+            Console.WriteLine("Handshaking...");
+            var hsResStr = client.Call(new { type = "handshake" });
+            var hsResObj = JObject.Parse(hsResStr);
+            Console.WriteLine(hsResObj["data"]);
+            Console.Write(hsResObj["prompt"]);
         }
     }
 }
