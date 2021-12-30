@@ -1,22 +1,20 @@
 ﻿using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
 using System;
-using System.Collections.Concurrent;
-using System.Collections.Generic;
 using System.Text;
 
 namespace UniversalCLI
 {
     public class RpcClient
     {
+        private const int DEFAULT_TIMEOUT = 6000;
         private readonly IConnection connection;
         private readonly IModel channel;
         private readonly string replyQueueName;
         private readonly EventingBasicConsumer consumer;
-        private readonly BlockingCollection<string> respQueue = new BlockingCollection<string>();
         private readonly IBasicProperties props;
+        private RpcResponse resultHandle;
 
         public RpcClient(string amqpsUrl)
         {
@@ -37,9 +35,24 @@ namespace UniversalCLI
             {
                 var body = ea.Body.ToArray();
                 var response = Encoding.UTF8.GetString(body);
-                if (ea.BasicProperties.CorrelationId == correlationId)
+                var properties = ea.BasicProperties;
+                if (properties.CorrelationId == correlationId)
                 {
-                    respQueue.Add(response);
+                    switch(properties.Type)
+                    {
+                        case "return":  // Return directly.
+                            resultHandle.Push(response, 0);
+                            resultHandle.Prompt = (string)properties.Headers["prompt"];
+                            resultHandle.Close();
+                            break;
+                        case "yield":  // Enumeration.
+                            resultHandle.Push(response, (int)properties.Headers["pack_num"]);
+                            break;
+                        case "close":  // Close enumeration.
+                            resultHandle.Prompt = (string)properties.Headers["prompt"];
+                            resultHandle.Close();
+                            break;
+                    }
                 }
             };
 
@@ -49,8 +62,13 @@ namespace UniversalCLI
                 autoAck: true);
         }
 
-        private string Call(string message)
+        private RpcResponse Call(string message, int timeout=DEFAULT_TIMEOUT)
         {
+            if (resultHandle != null && !resultHandle.Closed)
+            {
+                throw new Exception("Last result handler hasn't been closed yet!");
+            }
+            resultHandle = new RpcResponse(timeout) { Prompt=resultHandle?.Prompt };  // Inherit prompt.
             var messageBytes = Encoding.UTF8.GetBytes(message);
             channel.BasicPublish(
                 exchange: "",
@@ -58,19 +76,20 @@ namespace UniversalCLI
                 basicProperties: props,
                 body: messageBytes);
 
-            return respQueue.Take();
+            return resultHandle;
         }
 
-        public string Call(object cmdPack)
+        public RpcResponse Call(object cmdPack, int timeout=DEFAULT_TIMEOUT)
         {
             var message = JsonConvert.SerializeObject(cmdPack);
-            var result = Call(message);
+            var result = Call(message, timeout);
             return result;
         }
 
         public void Close()
         {
             connection.Close();
+            resultHandle?.Close();
         }
     }
 }

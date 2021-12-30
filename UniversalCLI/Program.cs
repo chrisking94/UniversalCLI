@@ -54,8 +54,8 @@ namespace UniversalCLI
                 {
                     var strCmd = Console.ReadLine();
                     var result = client.Call(new { type = "cmd", data = strCmd });
-                    var resObj = ProcessResult(result);
-                    Console.Write(resObj["prompt"]);  // Prepare for next input.
+                    ProcessResult(result);
+                    Console.Write(result.Prompt);  // Prepare for next input.
                 }
             }
             else  // Run ucli as a cmd command.
@@ -68,32 +68,42 @@ namespace UniversalCLI
             client.Close();
         }
 
-        private static JObject ProcessResult(string jsonString)
+        private static RpcResponse ProcessResult(RpcResponse handle)
         {
-            var resultJobj = JObject.Parse(jsonString);
-            var type = resultJobj["type"].Value<string>();
-
-            if ("error".Equals(type))
+            try
             {
-                Console.WriteLine(resultJobj["data"]);
-                if (resultJobj.TryGetValue("fix", out var value))
+                foreach (var jsonString in handle.GetResult())
                 {
-                    string strVal = value.Value<string>();
-                    if ("handshake" == strVal)
+                    var resultJobj = JObject.Parse(jsonString);
+                    var type = resultJobj["type"].Value<string>();
+
+                    if ("error".Equals(type))
                     {
-                        Handshake();
+                        Console.WriteLine(resultJobj["data"]);
+                        if (resultJobj.TryGetValue("fix", out var value))
+                        {
+                            string strVal = value.Value<string>();
+                            if ("handshake" == strVal)
+                            {
+                                Handshake();
+                            }
+                        }
+                    }
+                    else
+                    {
+                        string result = resultJobj["data"].Value<string>();
+                        if (!string.IsNullOrEmpty(result))
+                        {
+                            Console.WriteLine(result);
+                        }
                     }
                 }
             }
-            else
+            catch (TimeoutException ex)
             {
-                string result = resultJobj["data"].Value<string>();
-                if (!string.IsNullOrEmpty(result))
-                {
-                    Console.WriteLine(result);
-                }
+                Console.WriteLine(ex.Message);
             }
-            return resultJobj;
+            return handle; 
         }
 
         /// <summary>
@@ -102,10 +112,10 @@ namespace UniversalCLI
         private static void Handshake()
         {
             Console.WriteLine("Handshaking...");
-            var hsResStr = client.Call(new { type = "handshake" });
-            var hsResObj = JObject.Parse(hsResStr);
+            var hsRes = client.Call(new { type = "handshake" });
+            var hsResObj = JObject.Parse(hsRes.GetSingleResult());
             Console.WriteLine(hsResObj["data"]);
-            Console.Write(hsResObj["prompt"]);
+            Console.Write(hsRes.Prompt);
         }
     }
 }
