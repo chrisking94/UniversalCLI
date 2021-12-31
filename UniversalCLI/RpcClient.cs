@@ -33,25 +33,24 @@ namespace UniversalCLI
 
             consumer.Received += (model, ea) =>
             {
-                var body = ea.Body.ToArray();
-                var response = Encoding.UTF8.GetString(body);
                 var properties = ea.BasicProperties;
-                if (properties.CorrelationId == correlationId)
+                var headers = properties.Headers;
+                if (properties.CorrelationId != correlationId) return;  // Not my message.
+                var body = ea.Body.ToArray();
+                if (body.Length > 0)
                 {
-                    switch(properties.Type)
+                    var response = Encoding.UTF8.GetString(body);
+                    resultHandle.Push(response, (int)headers["pack_num"]);
+                }  // else empty body.
+                if (headers.TryGetValue("prompt", out var value))
+                {
+                    resultHandle.Prompt = (string)value;
+                }
+                if (headers.TryGetValue("close", out value))
+                {
+                    if ((bool)value)  // Close.
                     {
-                        case "return":  // Return directly.
-                            resultHandle.Push(response, 0);
-                            resultHandle.Prompt = (string)properties.Headers["prompt"];
-                            resultHandle.Close();
-                            break;
-                        case "yield":  // Enumeration.
-                            resultHandle.Push(response, (int)properties.Headers["pack_num"]);
-                            break;
-                        case "close":  // Close enumeration.
-                            resultHandle.Prompt = (string)properties.Headers["prompt"];
-                            resultHandle.Close();
-                            break;
+                        resultHandle.Close();
                     }
                 }
             };
@@ -89,7 +88,10 @@ namespace UniversalCLI
         public void Close()
         {
             connection.Close();
-            resultHandle?.Close();
+            if (resultHandle != null && !resultHandle.Closed)
+            {
+                resultHandle?.Close();
+            }
         }
     }
 }

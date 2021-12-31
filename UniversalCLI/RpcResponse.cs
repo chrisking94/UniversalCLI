@@ -36,10 +36,14 @@ namespace UniversalCLI
         /// <returns></returns>
         public string GetSingleResult()
         {
-            var result = GetResult().First();
-            if (!Closed)
+            string result = null;
+            foreach (var part in GetResult())
             {
-                throw new Exception("Result contains multiple parts.");
+                if (result == null)
+                {
+                    result = part;
+                }
+                else throw new Exception("Result contains multiple parts.");
             }
             return result;
         }
@@ -51,7 +55,7 @@ namespace UniversalCLI
         public IEnumerable<string> GetResult()
         {
             int timeCnt = 0;
-            while (!Closed)
+            while (!Closed || respQueue.Count > 0)
             {
                 // Check queue.
                 if (respQueue.Count > 0)
